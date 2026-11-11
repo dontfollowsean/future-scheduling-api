@@ -11,6 +11,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// Embed the tz database, so America/Los_Angeles and its DST rules load
+	// even where the image or CI runner has no /usr/share/zoneinfo.
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 

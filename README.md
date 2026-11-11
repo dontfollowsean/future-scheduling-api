@@ -2,7 +2,7 @@
 
 An HTTP JSON API in Go that lets a client book a 30-minute video call with their trainer, backed by Postgres.
 
-This is a work in progress. So far it has the skeleton (configuration, logging, a database connection, `GET /healthz` and the one-command run) and the Postgres schema, migrated at startup. The scheduling endpoints are coming in later milestones.
+This is a work in progress. So far it has the skeleton (configuration, logging, a database connection, `GET /healthz` and the one-command run) the Postgres schema, migrated at startup, and the scheduling rules and slot generation. The scheduling endpoints are coming in later milestones.
 
 ## Quick start
 

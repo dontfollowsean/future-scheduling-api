@@ -150,7 +150,7 @@ These behaviours were checked on a scratch Postgres 17.5 (Appendix A):
 
 **Why return Pacific time rather than UTC (A9):** It matches the seed file. It also makes the business-hours rule visible in the response itself, and RFC 3339 with an offset is still unambiguous for any client. The alternative is `Z` everywhere. That is equally correct, but it hides the 08:00–17:00 rule behind a conversion.
 
-**Driver pitfall:** pgx returns `timestamptz` values in `time.Local`. On the development machine used for Appendix A, rows came back as `-0500 EST`. In a container, `time.Local` is usually UTC. Responses must therefore always go through `formatTime(t)`, which calls `t.In(loc)`. They must never rely on the location of a value scanned from the database.
+**Driver pitfall:** pgx returns `timestamptz` values in `time.Local`. On the development machine used for Appendix A, rows came back as `-0500 EST`. In a container, `time.Local` is usually UTC. Responses must therefore always go through `formatTime(t, loc)`, which calls `t.In(loc)`. They must never rely on the location of a value scanned from the database.
 
 **Day boundaries are built from wall-clock time:**
 
@@ -436,8 +436,8 @@ GET /trainers/1/appointments
 cmd/scheduler/
   main.go          config from env, slog, pgx pool, migrate, seed, http.Server, signal handling
 internal/scheduling/            pure domain: no net/http, no pgx
-  rules.go         Rules{Location, Open, Close (wall-clock h:m), SlotLength, Workdays}; Violations(start, end)
-  slots.go         Slots(rules, from, to, booked) []Slot
+  rules.go         Rules{Location, Open, Close (wall-clock h:m), SlotLength, Workdays}; Violations, ValidateBooking, ValidateWindow
+  slots.go         Interval; Rules.Slots(from, to, now, booked) []Interval
   service.go       Service{store Store, rules Rules, now func() time.Time}: Book, Availability, ListForTrainer
   errors.go        ErrSlotTaken, ValidationError{Code, Field, Message}
 internal/postgres/
@@ -494,7 +494,7 @@ type Store interface {
 |---|---|---|
 | Cancel | `POST /appointments/{id}/cancel` (or `DELETE`), plus `Service.Cancel` and `Store.Cancel` | Add `canceled_at timestamptz`. Make the exclusion constraint partial with `WHERE (canceled_at IS NULL)`. The availability query adds the same filter. |
 | Reschedule | `PATCH /appointments/{id}`. It reuses `Rules.Violations` and runs one `UPDATE`. The constraint already ignores the row's own old version and returns `23P01` on conflict. | None |
-| Per-trainer hours or time zones | `Rules` is already a value rather than package constants. `Service` would get rules from a `RulesFor(ctx, trainerID)` lookup instead of one field. `formatTime` would take the trainer's zone. | `trainer_schedules (trainer_id, time_zone, open, close, workdays)` |
+| Per-trainer hours or time zones | `Rules` is already a value rather than package constants. `Service` would get rules from a `RulesFor(ctx, trainerID)` lookup instead of one field. `formatTime` would be passed the trainer's zone. | `trainer_schedules (trainer_id, time_zone, open, close, workdays)` |
 | Variable lengths | `Rules.SlotLength` becomes an allowed set. `Slots` takes the requested length. Subtraction is already interval-based. | None. The range constraint already covers it. |
 | A client's own appointments | `GET /users/{user_id}/appointments`, plus `Store.ListByUser` | Index on `(user_id, starts_at)`. Optionally the user exclusion constraint (A7). |
 | Pagination | `?limit=&after=` keyset on `(starts_at, id)`. Responses are already wrapped, so `next_cursor` is purely an addition. | Extend the index to `(trainer_id, starts_at, id)` |
