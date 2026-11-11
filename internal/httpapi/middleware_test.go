@@ -48,7 +48,7 @@ func TestRequestLogRecordsStatusAndRequestID(t *testing.T) {
 	}{
 		{name: "200 with a generated id", path: "/healthz", wantStatus: http.StatusOK, wantRoute: "GET /healthz"},
 		{name: "caller's id is reused", path: "/healthz", incomingID: "abc-123", wantStatus: http.StatusOK, wantRoute: "GET /healthz", wantReusedID: true},
-		{name: "404 from the catch-all", path: "/nope", wantStatus: http.StatusNotFound, wantRoute: "/"},
+		{name: "404 for an unmatched path", path: "/nope", wantStatus: http.StatusNotFound, wantRoute: ""},
 		{name: "panic becomes a logged 500", path: "/panic", wantStatus: http.StatusInternalServerError, wantRoute: "GET /panic", wantPanicLine: true},
 	}
 
@@ -64,8 +64,7 @@ func TestRequestLogRecordsStatusAndRequestID(t *testing.T) {
 			mux.HandleFunc("GET /panic", func(w http.ResponseWriter, r *http.Request) {
 				panic("boom")
 			})
-			mux.HandleFunc("/", handleNotFound)
-			h := withRequestID(logRequests(logger, recoverPanics(logger, mux)))
+			h := withRequestID(logRequests(logger, recoverPanics(logger, jsonNotFound(mux))))
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.incomingID != "" {

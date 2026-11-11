@@ -74,3 +74,35 @@ func TestUnknownRouteIsJSON404(t *testing.T) {
 		t.Errorf("body = %q, want %q", got, want)
 	}
 }
+
+func TestWrongMethodOnKnownPathIs405(t *testing.T) {
+	h := NewHandler(discardLogger(), &fakePinger{})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD")
+	}
+}
+
+func TestUnknownRouteWithAnyMethodIsJSON404(t *testing.T) {
+	h := NewHandler(discardLogger(), &fakePinger{})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/nope", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got)
+	}
+	want := `{"error":{"code":"not_found","message":"no route for POST /nope"}}` + "\n"
+	if got := rec.Body.String(); got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+}

@@ -22,11 +22,10 @@ type Pinger interface {
 func NewHandler(logger *slog.Logger, db Pinger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth(logger, db))
-	mux.HandleFunc("/", handleNotFound)
 
 	// The request id is outermost so every later log line can carry it.
 	// Recover sits inside logging so a panic is logged as a 500.
-	var h http.Handler = mux
+	var h http.Handler = jsonNotFound(mux)
 	h = recoverPanics(logger, h)
 	h = logRequests(logger, h)
 	h = withRequestID(h)
@@ -54,4 +53,41 @@ func handleHealth(logger *slog.Logger, db Pinger) http.HandlerFunc {
 
 func handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "not_found", "no route for "+r.Method+" "+r.URL.Path)
+}
+
+// jsonNotFound serves mux but turns its plain-text 404 for an unmatched
+// path into the JSON 404. The mux's 405 for a wrong method on a known
+// path, with its Allow header, passes through unchanged.
+func jsonNotFound(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pattern := mux.Handler(r); pattern != "" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(&notFoundWriter{ResponseWriter: w, r: r}, r)
+	})
+}
+
+// notFoundWriter replaces a 404 response with handleNotFound's and drops
+// the body the mux writes after it.
+type notFoundWriter struct {
+	http.ResponseWriter
+	r        *http.Request
+	replaced bool
+}
+
+func (w *notFoundWriter) WriteHeader(status int) {
+	if status == http.StatusNotFound {
+		w.replaced = true
+		handleNotFound(w.ResponseWriter, w.r)
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *notFoundWriter) Write(b []byte) (int, error) {
+	if w.replaced {
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
 }
