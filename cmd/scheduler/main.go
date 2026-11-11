@@ -78,12 +78,14 @@ func run() error {
 	}
 	logger.Info("database migrated", "schema_version", version)
 
+	rules, err := scheduling.DefaultRules()
+	if err != nil {
+		return err
+	}
+	store := postgres.NewStore(pool)
+
 	if cfg.SeedFile != "" {
-		rules, err := scheduling.DefaultRules()
-		if err != nil {
-			return err
-		}
-		res, err := seed.Run(ctx, logger, postgres.NewStore(pool), rules, cfg.SeedFile)
+		res, err := seed.Run(ctx, logger, store, rules, cfg.SeedFile)
 		if err != nil {
 			return err
 		}
@@ -91,9 +93,11 @@ func run() error {
 			"inserted", res.Inserted, "skipped", res.Skipped, "warnings", res.Warnings)
 	}
 
+	svc := scheduling.NewService(store, rules, time.Now)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewHandler(logger, pool),
+		Handler:           httpapi.NewHandler(logger, pool, svc),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

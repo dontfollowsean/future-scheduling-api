@@ -27,7 +27,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, errorBody{Error: errorDetail{Code: code, Message: message}})
+	writeFieldError(w, status, code, "", message)
+}
+
+// writeFieldError is writeError for an error that one input field caused.
+// An empty field is left out of the body.
+func writeFieldError(w http.ResponseWriter, status int, code, field, message string) {
+	writeJSON(w, status, errorBody{Error: errorDetail{Code: code, Message: message, Field: field}})
 }
 
 // formatTime renders t as RFC 3339 in the business zone loc, such as
