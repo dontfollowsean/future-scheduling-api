@@ -25,7 +25,7 @@ func NewHandler(logger *slog.Logger, db Pinger) http.Handler {
 
 	// The request id is outermost so every later log line can carry it.
 	// Recover sits inside logging so a panic is logged as a 500.
-	var h http.Handler = jsonNotFound(mux)
+	h := jsonNotFound(mux)
 	h = recoverPanics(logger, h)
 	h = logRequests(logger, h)
 	h = withRequestID(h)
