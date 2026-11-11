@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // errorBody is the shape of every 4xx and 5xx response:
@@ -27,4 +28,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: errorDetail{Code: code, Message: message}})
+}
+
+// formatTime renders t as RFC 3339 in the business zone loc, such as
+// 2026-11-16T09:00:00-08:00. Every timestamp in a response goes through
+// it, because pgx scans timestamptz values into time.Local, not loc.
+func formatTime(t time.Time, loc *time.Location) string {
+	return t.In(loc).Format(time.RFC3339)
 }
