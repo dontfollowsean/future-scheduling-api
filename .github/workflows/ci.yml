@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      # Service containers start before checkout, so they can't mount
+      # scripts/initdb; naming the database scheduler_test does the same job.
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: scheduler
+          POSTGRES_PASSWORD: scheduler
+          POSTGRES_DB: scheduler_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U scheduler -d scheduler_test"
+          --health-interval 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint
+      # make test starts Postgres with docker compose; here the service above
+      # is already running, so call its go test command directly.
+      - run: go test -race -count=1 ./...
+        env:
+          TEST_DATABASE_URL: postgres://scheduler:scheduler@localhost:5433/scheduler_test?sslmode=disable
