@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -68,6 +69,66 @@ func (s *Store) CreateAppointment(ctx context.Context, a scheduling.Appointment)
 		return scheduling.Appointment{}, fmt.Errorf("insert appointment: %w", err)
 	}
 	return created, nil
+}
+
+// SeedAppointments inserts appts with their own IDs, in one transaction,
+// and returns how many were new. An appointment whose ID is already stored
+// is skipped, so running the same seed twice inserts nothing the second
+// time. An overlap, with a stored row or within appts, returns an error
+// wrapping scheduling.ErrSlotTaken and writes nothing.
+func (s *Store) SeedAppointments(ctx context.Context, appts []scheduling.Appointment) (int, error) {
+	inserted := 0
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// Take the same per-trainer lock as CreateAppointment, so a booking
+		// racing the seed queues instead of deadlocking. Locking in
+		// ascending trainer order stops two seeds deadlocking each other.
+		for _, trainerID := range trainerIDs(appts) {
+			if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", trainerID); err != nil {
+				return fmt.Errorf("lock trainer %d: %w", trainerID, err)
+			}
+		}
+
+		for _, a := range appts {
+			// ON CONFLICT (id) only skips a repeated ID. An overlap still
+			// raises 23P01 and rolls the whole seed back.
+			tag, err := tx.Exec(ctx, `
+				INSERT INTO appointments (id, trainer_id, user_id, starts_at, ends_at)
+				VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT (id) DO NOTHING`,
+				a.ID, a.TrainerID, a.UserID, a.StartsAt, a.EndsAt)
+			if isOverlap(err) {
+				return fmt.Errorf("appointment %d: %w", a.ID, scheduling.ErrSlotTaken)
+			}
+			if err != nil {
+				return fmt.Errorf("insert appointment %d: %w", a.ID, err)
+			}
+			inserted += int(tag.RowsAffected())
+		}
+
+		// The explicit IDs bypass the identity sequence, so move it past
+		// them; otherwise the next booking would be given ID 1 and fail.
+		// On an empty table max(id) is NULL and setval leaves it alone.
+		_, err := tx.Exec(ctx, `
+			SELECT setval(pg_get_serial_sequence('appointments', 'id'), (SELECT max(id) FROM appointments))`)
+		if err != nil {
+			return fmt.Errorf("advance id sequence: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("seed appointments: %w", err)
+	}
+	return inserted, nil
+}
+
+// trainerIDs returns the distinct trainer IDs in appts, in ascending order.
+func trainerIDs(appts []scheduling.Appointment) []int64 {
+	var ids []int64
+	for _, a := range appts {
+		ids = append(ids, a.TrainerID)
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
 }
 
 // ListByTrainer returns all of the trainer's appointments, past ones

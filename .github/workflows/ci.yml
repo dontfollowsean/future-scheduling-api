@@ -31,6 +31,6 @@ jobs:
       - run: make lint
       # make test starts Postgres with docker compose; here the service above
       # is already running, so call its go test command directly.
-      - run: go test -race -count=1 ./...
+      - run: go test -race -count=1 -p 1 ./...
         env:
           TEST_DATABASE_URL: postgres://scheduler:scheduler@localhost:5433/scheduler_test?sslmode=disable

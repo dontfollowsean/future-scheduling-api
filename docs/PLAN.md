@@ -564,7 +564,7 @@ In production, migrations would run as a one-off ECS task before the service rol
 | Target | Does |
 |---|---|
 | `make run` | `docker compose up --build` |
-| `make test` | `docker compose up -d --wait db`, then `TEST_DATABASE_URL=…/scheduler_test go test -race -count=1 ./...` |
+| `make test` | `docker compose up -d --wait db`, then `TEST_DATABASE_URL=…/scheduler_test go test -race -count=1 -p 1 ./...` |
 | `make lint` | `gofmt -l` (fails on output), `go vet ./...`, then golangci-lint through its pinned Docker image |
 | `make down` | `docker compose down -v` (resets the data) |
 

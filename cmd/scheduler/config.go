@@ -13,6 +13,9 @@ type config struct {
 	DatabaseURL string
 	HTTPAddr    string
 	LogLevel    slog.Level
+	// SeedFile is the appointments.json to load at startup. Empty skips
+	// seeding, which is the production default.
+	SeedFile string
 }
 
 // loadConfig reads the configuration through getenv, which is os.Getenv
@@ -22,6 +25,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 		DatabaseURL: getenv("DATABASE_URL"),
 		HTTPAddr:    getenv("HTTP_ADDR"),
 		LogLevel:    slog.LevelInfo,
+		SeedFile:    getenv("SEED_FILE"),
 	}
 
 	if cfg.DatabaseURL == "" {

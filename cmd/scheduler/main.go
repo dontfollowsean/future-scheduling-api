@@ -19,6 +19,8 @@ import (
 
 	"github.com/dontfollowsean/future-scheduling-api/internal/httpapi"
 	"github.com/dontfollowsean/future-scheduling-api/internal/postgres"
+	"github.com/dontfollowsean/future-scheduling-api/internal/scheduling"
+	"github.com/dontfollowsean/future-scheduling-api/internal/seed"
 )
 
 const (
@@ -75,6 +77,19 @@ func run() error {
 		return err
 	}
 	logger.Info("database migrated", "schema_version", version)
+
+	if cfg.SeedFile != "" {
+		rules, err := scheduling.DefaultRules()
+		if err != nil {
+			return err
+		}
+		res, err := seed.Run(ctx, logger, postgres.NewStore(pool), rules, cfg.SeedFile)
+		if err != nil {
+			return err
+		}
+		logger.Info("database seeded", "file", cfg.SeedFile,
+			"inserted", res.Inserted, "skipped", res.Skipped, "warnings", res.Warnings)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
