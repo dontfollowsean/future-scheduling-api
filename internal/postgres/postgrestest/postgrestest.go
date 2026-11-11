@@ -20,7 +20,9 @@ const maxConns = 25
 // anywhere. The pool is closed when the test ends.
 //
 // Every test starts from an empty table, so tests that use Pool must not
-// run in parallel with each other.
+// run in parallel with each other. "go test" also runs different packages'
+// test binaries in parallel, so once a second package uses Pool the
+// integration tests must run with -p 1.
 func Pool(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 
