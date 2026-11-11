@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:17-alpine # match the RDS major version
+    environment:
+      POSTGRES_USER: scheduler
+      POSTGRES_PASSWORD: scheduler
+      POSTGRES_DB: scheduler
+    ports:
+      - "5433:5432" # 5433 avoids clashing with a local Postgres
+    volumes:
+      - ./scripts/initdb:/docker-entrypoint-initdb.d:ro # creates scheduler_test
+    healthcheck:
+      # -h forces TCP, so the check stays red while the init scripts run
+      # against the entrypoint's socket-only temporary server.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U scheduler -d scheduler"]
+      interval: 2s
+      retries: 15
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://scheduler:scheduler@db:5432/scheduler?sslmode=disable
+    ports:
+      - "8080:8080"
