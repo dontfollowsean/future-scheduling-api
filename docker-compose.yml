@@ -23,5 +23,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://scheduler:scheduler@db:5432/scheduler?sslmode=disable
+      SEED_FILE: /data/appointments.json
+    volumes:
+      # Mounted rather than copied, so the image carries no fixture data.
+      - ./appointments.json:/data/appointments.json:ro
     ports:
       - "8080:8080"

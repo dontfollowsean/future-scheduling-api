@@ -21,8 +21,8 @@ func TestLoadConfig(t *testing.T) {
 		},
 		{
 			name: "everything set",
-			env:  map[string]string{"DATABASE_URL": dbURL, "HTTP_ADDR": ":9090", "LOG_LEVEL": "debug"},
-			want: config{DatabaseURL: dbURL, HTTPAddr: ":9090", LogLevel: slog.LevelDebug},
+			env:  map[string]string{"DATABASE_URL": dbURL, "HTTP_ADDR": ":9090", "LOG_LEVEL": "debug", "SEED_FILE": "/data/appointments.json"},
+			want: config{DatabaseURL: dbURL, HTTPAddr: ":9090", LogLevel: slog.LevelDebug, SeedFile: "/data/appointments.json"},
 		},
 		{
 			name: "log level is case-insensitive",
