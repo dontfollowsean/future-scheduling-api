@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dontfollowsean/future-scheduling-api/internal/httpapi"
+	"github.com/dontfollowsean/future-scheduling-api/internal/postgres"
 )
 
 const (
@@ -63,6 +64,14 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	// Migrate once the database answers. In production this would be a
+	// one-off ECS task before rollout, so replicas never race to migrate.
+	version, err := postgres.Migrate(ctx, pool)
+	if err != nil {
+		return err
+	}
+	logger.Info("database migrated", "schema_version", version)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
