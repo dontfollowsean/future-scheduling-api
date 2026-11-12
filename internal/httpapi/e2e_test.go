@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/dontfollowsean/future-scheduling-api/internal/postgres"
 	"github.com/dontfollowsean/future-scheduling-api/internal/postgres/postgrestest"
 	"github.com/dontfollowsean/future-scheduling-api/internal/scheduling"
+	"github.com/dontfollowsean/future-scheduling-api/internal/seed"
 )
 
 // These tests run the real handler, Service and Postgres store over HTTP.
@@ -49,42 +49,17 @@ func mustRules(t *testing.T) scheduling.Rules {
 	return rules
 }
 
-// seedAppointments stores the 10 records in appointments.json, in file
-// order, so on an empty table they get ids 1 to 10 as in the file.
-//
-// It stands in for the seed loader, which is not written yet; when it is,
-// this helper should call it instead.
+// seedAppointments loads appointments.json with the real seed loader, as
+// the server does at startup. On an empty table it inserts all 10 records
+// with the file's ids, 1 to 10.
 func seedAppointments(t *testing.T, store *postgres.Store) {
 	t.Helper()
-	data, err := os.ReadFile("../../appointments.json")
+	res, err := seed.Run(t.Context(), slog.New(slog.DiscardHandler), store, mustRules(t), "../../appointments.json")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("seed: %v", err)
 	}
-	// The file says started_at and ended_at where the API says starts_at
-	// and ends_at.
-	var records []struct {
-		ID        int64     `json:"id"`
-		TrainerID int64     `json:"trainer_id"`
-		UserID    int64     `json:"user_id"`
-		StartedAt time.Time `json:"started_at"`
-		EndedAt   time.Time `json:"ended_at"`
-	}
-	if err := json.Unmarshal(data, &records); err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range records {
-		a, err := store.CreateAppointment(t.Context(), scheduling.Appointment{
-			TrainerID: r.TrainerID,
-			UserID:    r.UserID,
-			StartsAt:  r.StartedAt,
-			EndsAt:    r.EndedAt,
-		})
-		if err != nil {
-			t.Fatalf("seed record %d: %v", r.ID, err)
-		}
-		if a.ID != r.ID {
-			t.Fatalf("seed record %d got id %d; is the table empty?", r.ID, a.ID)
-		}
+	if res.Inserted != 10 {
+		t.Fatalf("seed inserted %d records, want 10; is the table empty?", res.Inserted)
 	}
 }
 
