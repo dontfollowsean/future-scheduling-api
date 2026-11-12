@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/dontfollowsean/future-scheduling-api/internal/scheduling"
 )
 
 // healthTimeout bounds how long /healthz waits for the database.
@@ -19,9 +21,14 @@ type Pinger interface {
 }
 
 // NewHandler returns the API's root handler with all routes and middleware.
-func NewHandler(logger *slog.Logger, db Pinger) http.Handler {
+func NewHandler(logger *slog.Logger, db Pinger, svc *scheduling.Service) http.Handler {
+	api := &handlers{logger: logger, svc: svc}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealth(logger, db))
+	mux.HandleFunc("GET /trainers/{trainer_id}/availability", api.availability)
+	mux.HandleFunc("POST /appointments", api.book)
+	mux.HandleFunc("GET /trainers/{trainer_id}/appointments", api.listAppointments)
 
 	// The request id is outermost so every later log line can carry it.
 	// Recover sits inside logging so a panic is logged as a 500.

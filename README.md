@@ -2,7 +2,7 @@
 
 An HTTP JSON API in Go that lets a client book a 30-minute video call with their trainer, backed by Postgres.
 
-This is a work in progress. So far it has the skeleton (configuration, logging, a database connection, `GET /healthz` and the one-command run) the Postgres schema, migrated at startup, the scheduling rules and slot generation, and an idempotent seed that loads `appointments.json` at startup when `SEED_FILE` is set (Docker Compose sets it). The scheduling endpoints are coming in later milestones.
+This is a work in progress. So far it has the skeleton (configuration, logging, a database connection, `GET /healthz` and the one-command run), the Postgres schema, migrated at startup, the scheduling rules and slot generation, an idempotent seed that loads `appointments.json` at startup when `SEED_FILE` is set (Docker Compose sets it), and the three scheduling endpoints (`GET /trainers/{trainer_id}/availability`, `POST /appointments` and `GET /trainers/{trainer_id}/appointments`, specified in [docs/PLAN.md section 6](docs/PLAN.md#6-api-contract)). Full usage docs are coming in a later milestone.
 
 ## Quick start
 

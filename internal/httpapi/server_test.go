@@ -39,7 +39,7 @@ func TestHealthz(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &fakePinger{err: tt.pingErr}
-			h := NewHandler(discardLogger(), db)
+			h := NewHandler(discardLogger(), db, newService(t, &fakeStore{}))
 
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -61,7 +61,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestUnknownRouteIsJSON404(t *testing.T) {
-	h := NewHandler(discardLogger(), &fakePinger{})
+	h := NewHandler(discardLogger(), &fakePinger{}, newService(t, &fakeStore{}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
@@ -76,7 +76,7 @@ func TestUnknownRouteIsJSON404(t *testing.T) {
 }
 
 func TestWrongMethodOnKnownPathIs405(t *testing.T) {
-	h := NewHandler(discardLogger(), &fakePinger{})
+	h := NewHandler(discardLogger(), &fakePinger{}, newService(t, &fakeStore{}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
@@ -90,7 +90,7 @@ func TestWrongMethodOnKnownPathIs405(t *testing.T) {
 }
 
 func TestUnknownRouteWithAnyMethodIsJSON404(t *testing.T) {
-	h := NewHandler(discardLogger(), &fakePinger{})
+	h := NewHandler(discardLogger(), &fakePinger{}, newService(t, &fakeStore{}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/nope", nil))
