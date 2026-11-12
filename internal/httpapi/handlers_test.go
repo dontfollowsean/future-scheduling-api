@@ -177,6 +177,7 @@ func TestBook(t *testing.T) {
 		{"not JSON", `{"trainer_id": 1,`, response{wantStatus: 400, wantCode: "invalid_json"}},
 		{"empty body", ``, response{wantStatus: 400, wantCode: "invalid_json"}},
 		{"an array", `[]`, response{wantStatus: 400, wantCode: "invalid_json"}},
+		{"null", `null`, response{wantStatus: 400, wantCode: "invalid_json"}},
 		{"two objects", bookingBody("2026-11-16T10:00:00-08:00", "2026-11-16T10:30:00-08:00") + `{}`,
 			response{wantStatus: 400, wantCode: "invalid_json"}},
 		{"trainer_id as a string", `{"trainer_id": "1", "user_id": 42, "starts_at": "2026-11-16T10:00:00-08:00", "ends_at": "2026-11-16T10:30:00-08:00"}`,

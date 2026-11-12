@@ -94,9 +94,15 @@ func (h *handlers) availability(w http.ResponseWriter, r *http.Request) {
 // PLAN.md section 3: the body, the ids, the times, then the Service's
 // rules, and finally the database's overlap check.
 func (h *handlers) book(w http.ResponseWriter, r *http.Request) {
-	var req bookingRequest
+	// req is a pointer so that a literal null body, which decodes
+	// without error and leaves req nil, can be told apart from {}.
+	var req *bookingRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+	if req == nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "request body must be a JSON object")
 		return
 	}
 	if req.TrainerID <= 0 {
