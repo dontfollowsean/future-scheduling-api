@@ -172,9 +172,7 @@ Both start Postgres and run every test with the race detector against a separate
 
 ## How AI tools were used
 
-> **Draft:** the author will review this section and add what they checked by hand before submission.
-
-- **Tool.** The code was written with Claude Code. Each milestone PR (M1 to M5) was written by a Claude Code agent and passed through an automated pipeline (no-mistakes) that runs an AI code review, the tests, a documentation pass and lint before pushing. Commits prefixed `no-mistakes(review)` or `no-mistakes(document)` are that pipeline's fixes.
+- **Tool.** The code was written with Claude Code. Each milestone PR (M1 to M6) was written by a Claude Code agent and passed through an automated pipeline (no-mistakes) that runs an AI code review, the tests, a documentation pass and lint before pushing. Commits prefixed `no-mistakes(review)` or `no-mistakes(document)` are that pipeline's fixes.
 - **Planning.** [docs/PLAN.md](docs/PLAN.md) was approved before any code was written, and each PR updated it where the code had to differ. Its seed-data audit, constraint results and DST instants came from throwaway scripts run against the real file, an embedded Postgres 17.5 and Go's tz database (Appendix A).
 - **Where AI output was corrected:**
   - The plan said the exclusion constraint alone would handle concurrent inserts. The first full test run failed in the 20-way concurrency test with `40P01` deadlocks, so M3 added the per-trainer advisory lock and the plan was updated to match.
