@@ -178,4 +178,3 @@ Both start Postgres and run every test with the race detector against a separate
   - The plan said the exclusion constraint alone would handle concurrent inserts. The first full test run failed in the 20-way concurrency test with `40P01` deadlocks, so M3 added the per-trainer advisory lock and the plan was updated to match.
   - In M1, the automated review found that a catch-all `/` route turned `POST /healthz` into a `404` without an `Allow` header, contradicting the plan. The routing was changed to keep the standard library's `405`, with tests for both cases.
   - In M3, the review caught that the plan's scratch-run results contradicted the new deadlock finding, and that the test helper emptying a shared database would break once a second package used it. M4 then ran the integration packages one at a time (`-p 1`).
-- **Left open.** One review finding is unfixed: a literal `null` body gets `400 invalid_field` instead of `400 invalid_json`.
