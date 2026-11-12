@@ -29,3 +29,17 @@ services:
       - ./appointments.json:/data/appointments.json:ro
     ports:
       - "8080:8080"
+
+  # For reviewers without Go: docker compose --profile test run --rm test
+  test:
+    profiles: [test]
+    image: golang:1.27
+    depends_on:
+      db:
+        condition: service_healthy
+    working_dir: /src
+    volumes:
+      - .:/src
+    environment:
+      TEST_DATABASE_URL: postgres://scheduler:scheduler@db:5432/scheduler_test?sslmode=disable
+    command: go test -race -count=1 -p 1 ./...
