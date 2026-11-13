@@ -26,7 +26,7 @@ This plan covers an HTTP JSON API in Go that lets a client book a 30-minute vide
 | A7 | One client holding overlapping calls with two trainers | Allowed, because the spec constrains only trainers. Blocking it later is one more constraint. | 4, 11 |
 | A8 | `400` versus `422` | `400` for malformed or missing input, `422` for well-formed input that breaks a scheduling rule | 3 |
 | A9 | Time zone of response timestamps | The Pacific offset, which matches the seed file | 2 |
-| A10 | Largest allowed availability range | 31 days, which is about 414 slots at most | 5 |
+| A10 | Largest allowed availability range | 31 days, which is about 805 slots at most | 5 |
 | A11 | Holidays | Not excluded. The spec says "Monday-Friday". | 11 |
 | A12 | Whether `ends_at` is redundant in `POST` | Require it and check that it equals `starts_at + 30m` | 3 |
 
@@ -144,7 +144,7 @@ These behaviours were checked on a scratch Postgres 17.5 (Appendix A):
 | tz database | Import `time/tzdata` in `main` so DST rules ship inside the binary. This means correctness does not depend on whether the base image or CI runner has `/usr/share/zoneinfo`. The binary grows by about 450 KB. |
 | Storage | `timestamptz`, an absolute instant that Postgres keeps as UTC. Never `timestamp without time zone`. The Postgres session `TimeZone` setting is irrelevant. |
 | Input | RFC 3339 with an explicit offset (`Z` or `±hh:mm`), parsed with `time.Parse(time.RFC3339, …)`. A missing offset or a space separator gives `400`. Any offset is accepted and normalized to an instant. Fractional seconds parse, then fail the grid rule with `422`. |
-| Rule evaluation | Convert to `America/Los_Angeles` first, then check the weekday, the open and close wall-clock times, and the :00/:30 grid on the local time. A non-whole-hour offset shows why this order matters: `2026-11-16T22:30:00+05:45` is 08:45 PST, which is off the grid. |
+| Rule evaluation | Convert to `America/Los_Angeles` first, then check the weekday, the open and close wall-clock times, and the 15-minute grid (:00, :15, :30, :45) on the local time. A non-whole-hour offset shows why this order matters: `2026-11-16T22:40:00+05:45` is 08:55 PST, which is off the grid. |
 | Output (A9) | RFC 3339 rendered in `America/Los_Angeles`, such as `2026-11-16T09:00:00-08:00`, produced by one `formatTime` helper. |
 | Clock | `now` is injected into the service as `func() time.Time`. Production passes `time.Now` and tests pass a fixed instant. |
 
@@ -154,13 +154,13 @@ These behaviours were checked on a scratch Postgres 17.5 (Appendix A):
 
 **Day boundaries are built from wall-clock time:**
 
-- Day `d`'s slots are `time.Date(y, m, d, 8, 0, 0, 0, loc)`, stepped forward in 30-minute increments while the slot's end is no later than `time.Date(y, m, d, 17, 0, 0, 0, loc)`.
+- Day `d`'s slots are `time.Date(y, m, d, 8, 0, 0, 0, loc)`, stepped forward in 15-minute grid increments while the 30-minute slot's end is no later than `time.Date(y, m, d, 17, 0, 0, 0, loc)`.
 - The loop moves from one day to the next with `AddDate(0, 0, 1)`.
 - Adding `24*time.Hour` to an instant is wrong across DST. For example, Friday 2026-03-06 08:00 PST + 72h = **Monday 09:00 PDT**, while `AddDate(0, 0, 3)` gives Monday 08:00 PDT, which is correct (Appendix A).
 - Opening hours are stored as wall-clock hour and minute values, never as "local midnight + 8h". On a spring-forward day, midnight + 8h is 09:00. That day is a Sunday today, but per-trainer zones or weekend hours would expose the bug.
 - Dates are grouped by Pacific calendar date, never by UTC date. Friday's last slot (16:30 PST) is `00:30Z` *Saturday*.
 
-**Bookable window:** A slot needs `08:00 <= start` and `end <= 17:00` Pacific, on Monday to Friday. With 30-minute slots the last start is **16:30**, giving 18 slots per business day. Writing the rule in terms of `end` rather than `start <= 16:30` keeps it correct when appointment lengths start to vary.
+**Bookable window:** A slot needs `08:00 <= start` and `end <= 17:00` Pacific, on Monday to Friday. With 30-minute slots on a 15-minute grid the last start is **16:30**, giving 35 slots per business day. Writing the rule in terms of `end` rather than `start <= 16:30` keeps it correct when appointment lengths start to vary.
 
 **DST never happens inside business hours.** US transitions occur at 02:00 on a Sunday, so a single business day never changes offset. A multi-day window does, which is exactly what the tests below target.
 
@@ -170,7 +170,7 @@ These are unit tests with fixed dates and a fixed clock. All expected values wer
 
 | Case | Expectation |
 |---|---|
-| Spring forward. Window Fri 2026-03-06 00:00 PST → Sat 2026-03-14 00:00 PDT. DST starts Sun 2026-03-08. | 108 slots (6 business days × 18). Friday's first slot is `16:00Z` (08:00 PST). Monday 2026-03-09's first slot is `15:00Z` (08:00 PDT) and its last is `23:30Z` (16:30 PDT). No slots on Saturday 7 or Sunday 8 March. Every slot's Pacific wall clock is between 08:00 and 16:30. |
+| Spring forward. Window Fri 2026-03-06 00:00 PST → Sat 2026-03-14 00:00 PDT. DST starts Sun 2026-03-08. | 210 slots (6 business days × 35). Friday's first slot is `16:00Z` (08:00 PST). Monday 2026-03-09's first slot is `15:00Z` (08:00 PDT) and its last is `23:30Z` (16:30 PDT). No slots on Saturday 7 or Sunday 8 March. Every slot's Pacific wall clock is between 08:00 and 16:30. |
 | Fall back. Window Fri 2026-10-30 → Tue 2026-11-03. DST ends Sun 2026-11-01. | Friday's first slot is `15:00Z` (PDT). Monday 2026-11-02's first slot is `16:00Z` (PST). |
 | `POST` on Monday 2026-03-09 | `08:00-07:00` is accepted. `08:00-08:00` is 09:00 PDT: accepted, but a different slot. `16:30-08:00` is 17:30 PDT, so `422 outside_business_hours`. |
 | `POST` on Friday 2026-03-06 | `16:30-08:00` is accepted, even though its UTC date is the next day. |
@@ -191,7 +191,7 @@ Checks run in the order below. The first failure is returned. The validator coll
 | 2 | `trainer_id` and `user_id` are present and are positive integers | 400 | `invalid_field` (plus `field`) |
 | 3 | `starts_at` and `ends_at` are present and are RFC 3339 with an offset | 400 | `invalid_field` (plus `field`) |
 | 4 | `ends_at - starts_at == 30m` (A12) | 422 | `invalid_duration` |
-| 5 | `starts_at` falls on :00 or :30 in Pacific time, with zero seconds and nanoseconds | 422 | `off_grid` |
+| 5 | `starts_at` falls on :00, :15, :30 or :45 in Pacific time, with zero seconds and nanoseconds | 422 | `off_grid` |
 | 6 | The Pacific date is Monday to Friday | 422 | `not_business_day` |
 | 7 | `08:00 <= start` and `end <= 17:00` Pacific | 422 | `outside_business_hours` |
 | 8 | `starts_at >= now` (A1, flagged) | 422 | `in_past` |
@@ -291,21 +291,21 @@ Later extensions only add to this constraint:
 **Steps:**
 
 1. **Lower bound.** Set `from = max(starts_at, now)` so past slots are hidden (A1). This is the same predicate `POST` uses, so every listed slot is bookable when the response is sent.
-2. **Generate candidates.** For each Pacific calendar day from `from`'s date through `ends_at`'s date, skip Saturday and Sunday. Otherwise emit `[s, s+30m)` for `s = 08:00, 08:30, …, 16:30`, built with `time.Date` (section 2). Keep a candidate only if `s >= from` and `s+30m <= ends_at`.
+2. **Generate candidates.** For each Pacific calendar day from `from`'s date through `ends_at`'s date, skip Saturday and Sunday. Otherwise emit `[s, s+30m)` for `s = 08:00, 08:15, …, 16:30`, built with `time.Date` (section 2). Keep a candidate only if `s >= from` and `s+30m <= ends_at`.
 3. **Load bookings with one query**, which the GiST index can serve:
    ```sql
    SELECT starts_at, ends_at FROM appointments
    WHERE trainer_id = $1 AND tstzrange(starts_at, ends_at, '[)') && tstzrange($2, $3, '[)')
    ORDER BY starts_at;
    ```
-4. **Subtract.** Drop each candidate that overlaps any booking (`a.start < b.end && b.start < a.end`). Use an interval-overlap test, not "is this start time in the booked set", so the 60-minute id 9 removes both 13:00 and 13:30, and variable lengths need no change here. A plain nested loop is enough: about 414 candidates at most, against a handful of bookings. A two-pointer merge is the obvious change if the range limit ever grows.
+4. **Subtract.** Drop each candidate that overlaps any booking (`a.start < b.end && b.start < a.end`). Use an interval-overlap test, not "is this start time in the booked set", so the 60-minute id 9 removes every start from 12:45 to 13:45, and variable lengths need no change here. A plain nested loop is enough: about 805 candidates at most, against a handful of bookings. A two-pointer merge is the obvious change if the range limit ever grows.
 5. **Return** slots in ascending start order. An empty result is `"slots": []` (a non-nil slice), never `null` and never `404`.
 
 | Decision | Recommendation |
 |---|---|
 | Bounds (A4) | Half-open `[starts_at, ends_at)`. The window from Monday 00:00 to Tuesday 00:00 is exactly Monday. |
-| Partial edge slots (A5) | Excluded. A slot is returned only if it fits entirely inside the window. `starts_at=09:10` makes the first slot 09:30. `ends_at=16:45` makes the last slot 16:00–16:30. |
-| Maximum range (A10) | 31 days. That spans at most 23 business days × 18 = **414 slots**, plus at most one extra hour if the window crosses spring-forward: a small, bounded response with no pagination needed. |
+| Partial edge slots (A5) | Excluded. A slot is returned only if it fits entirely inside the window. `starts_at=09:10` makes the first slot 09:15. `ends_at=16:45` makes the last slot 16:15–16:45. |
+| Maximum range (A10) | 31 days. That spans at most 23 business days × 35 = **805 slots**, plus at most one extra hour if the window crosses spring-forward: a small, bounded response with no pagination needed. |
 | Ordering | Ascending by `starts_at` |
 | Empty result | `200` with `"slots": []`. This covers a weekend-only window, a fully booked trainer or a window in the past. |
 | Past slots (A1) | Hidden, consistent with `POST` |
@@ -313,11 +313,11 @@ Later extensions only add to this constraint:
 
 **Availability is a snapshot.** A listed slot can be taken before the client posts. The client then gets `409 slot_unavailable` and refreshes the list. The database constraint keeps this race safe.
 
-**Seed data in tests:** With the clock pinned to 2019-01-21, the window Thursday 2019-01-24 → Saturday 2019-01-26 (PST) contains 36 candidates per trainer. Expected results:
+**Seed data in tests:** With the clock pinned to 2019-01-21, the window Thursday 2019-01-24 → Saturday 2019-01-26 (PST) contains 70 candidates per trainer. A 30-minute booking hides the start 15 minutes before it, its own start, and the start 15 minutes into it. Expected results:
 
-- **Trainer 1:** 32 slots. Missing are Thursday 09:00 and 10:00 and Friday 10:00 and 10:30.
-- **Trainer 2:** 35 slots. Missing is Thursday 09:00.
-- **Trainer 3:** 36 slots, because all of its appointments are on Saturday.
+- **Trainer 1:** 59 slots. Missing are Thursday 08:45 to 09:15 and 09:45 to 10:15, and Friday 09:45 to 10:45.
+- **Trainer 2:** 67 slots. Missing are Thursday 08:45 to 09:15.
+- **Trainer 3:** 70 slots, because all of its appointments are on Saturday.
 
 ---
 
@@ -349,6 +349,7 @@ GET /trainers/1/availability?starts_at=2026-11-16T08:00:00-08:00&ends_at=2026-11
   "trainer_id": 1,
   "slots": [
     {"starts_at": "2026-11-16T08:00:00-08:00", "ends_at": "2026-11-16T08:30:00-08:00"},
+    {"starts_at": "2026-11-16T08:15:00-08:00", "ends_at": "2026-11-16T08:45:00-08:00"},
     {"starts_at": "2026-11-16T08:30:00-08:00", "ends_at": "2026-11-16T09:00:00-08:00"},
     {"starts_at": "2026-11-16T09:30:00-08:00", "ends_at": "2026-11-16T10:00:00-08:00"}
   ]
@@ -392,7 +393,7 @@ The `409` body does not say who holds the slot.
 `422 Unprocessable Entity` when the times are off the grid:
 
 ```json
-{"error": {"code": "off_grid", "message": "starts_at must be on the hour or half hour", "field": "starts_at"}}
+{"error": {"code": "off_grid", "message": "starts_at must be on a 15-minute boundary in America/Los_Angeles, with zero seconds", "field": "starts_at"}}
 ```
 
 `400 Bad Request` when the request uses a field name from the seed file:
@@ -506,11 +507,11 @@ type Store interface {
 
 | Layer | Kind | What it proves |
 |---|---|---|
-| `scheduling` | Table-driven unit tests, no I/O, fixed clock | **Validation:** 07:30 rejected and 08:00 accepted; 16:30 accepted and 17:00 rejected; 16:45, `:15` and fractional seconds off the grid; Saturday and Sunday; durations of 0, 29, 31 and 60 minutes and negative durations; `Z`, `+05:45` and `-07:00` inputs; past versus `now`; the DST `POST` cases from section 2. **Slots:** one day (18 slots); a window covering Saturday and Sunday; partial edge windows; an empty window; both DST weeks with their exact UTC instants; subtraction of back-to-back bookings and a 60-minute booking; ascending order; non-nil empty result; every generated slot passes `Violations`. |
+| `scheduling` | Table-driven unit tests, no I/O, fixed clock | **Validation:** 07:30 rejected and 08:00 accepted; 16:30 accepted and 17:00 rejected; 16:45 ending after closing; `:10`, `:40` and fractional seconds off the grid; Saturday and Sunday; durations of 0, 29, 31 and 60 minutes and negative durations; `Z`, `+05:45` and `-07:00` inputs; past versus `now`; the DST `POST` cases from section 2. **Slots:** one day (35 slots); a window covering Saturday and Sunday; partial edge windows; an empty window; both DST weeks with their exact UTC instants; subtraction of back-to-back bookings and a 60-minute booking; ascending order; non-nil empty result; every generated slot passes `Violations`. |
 | `httpapi` | `httptest` with a fake in-memory `Store` | Status-to-code mapping for each row in section 3; error JSON shape; unknown fields; body too large; a bad `trainer_id` path value; missing or malformed query parameters; `201` body; and `formatTime` output stays in the Pacific offset whatever the `time.Local` setting. |
 | `postgres` | Integration against real Postgres | Migrations apply cleanly. Overlap gives `ErrSlotTaken`, including id 9's 13:30 case and an equivalent instant written in a different offset. Back-to-back bookings are allowed. `ends_at <= starts_at` hits the `CHECK`. List ordering is correct. |
 | `seed` | Integration | The real `appointments.json` loads 10 rows. 5 warnings are logged (ids 5, 7, 8, 9, 10, with two reasons for id 9). A second run inserts 0 rows. The next `POST` gets id 11. An overlapping file fails with nothing written. |
-| End-to-end | `httptest.NewServer(real handler, real store)` | The three endpoints against the seeded database with the clock pinned to 2019-01-21. Trainer 1 gets 32 slots, trainer 2 gets 35 and trainer 3 gets 36 (section 5). |
+| End-to-end | `httptest.NewServer(real handler, real store)` | The three endpoints against the seeded database with the clock pinned to 2019-01-21. Trainer 1 gets 59 slots, trainer 2 gets 67 and trainer 3 gets 70 (section 5). |
 | **Concurrency** | End-to-end, real Postgres | Two goroutines wait on a closed channel as a start barrier, then `POST` the same slot at once. Exactly one `201` and one `409`, and exactly one row in the database. Repeat over 25 distinct slots so the requests genuinely interleave, then run a 20-way variant. Run everything with `-race`. |
 
 **Isolation and gating:**

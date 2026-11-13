@@ -151,7 +151,7 @@ Both start Postgres and run every test with the race detector against a separate
 | `httpapi` | One handler case per row of the error table, with a fake store; the error shape; the JSON 404 and the 405. |
 | `postgres` | Overlap, back-to-back and different-offset bookings against real Postgres, the `CHECK` constraints, list ordering, and 2-way and 20-way concurrent inserts. |
 | `seed` | The real `appointments.json` loads 10 rows with 5 warnings, a rerun inserts nothing, the next id is 11, and a broken or overlapping file writes nothing. |
-| End to end | The real handler and store over the seeded database, with the clock pinned to 2019-01-21: trainer 1 has 32 free slots, trainer 2 has 35 and trainer 3 has 36. |
+| End to end | The real handler and store over the seeded database, with the clock pinned to 2019-01-21: trainer 1 has 59 free slots, trainer 2 has 67 and trainer 3 has 70. |
 
 **The concurrency test** (`TestConcurrentBookingOverHTTP`) sends 2, then 20, simultaneous `POST`s for the same slot through the real HTTP server and database, released together by a closed channel. It repeats over 25 slots so the requests genuinely interleave. Each slot must get exactly one `201`, a `409` for every other request, and exactly one row in the database. The store has the same 2-way and 20-way test without HTTP (`TestCreateAppointmentConcurrent`), which is the one that exposed the deadlock described under the advisory lock.
 
