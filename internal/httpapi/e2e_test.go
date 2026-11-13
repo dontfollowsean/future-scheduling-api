@@ -99,9 +99,10 @@ func bookingBody(trainerID, userID int64, start, end string) string {
 	return fmt.Sprintf(`{"trainer_id": %d, "user_id": %d, "starts_at": %q, "ends_at": %q}`, trainerID, userID, start, end)
 }
 
-// TestSeededAvailability checks the counts from PLAN.md section 5: the 36
-// slots of Thursday and Friday 2019-01-24 and 25, less each trainer's
-// seed appointments. Saturday's appointments take nothing away.
+// TestSeededAvailability checks the counts from PLAN.md section 5, on the
+// 15-minute grid: the 70 slots of Thursday and Friday 2019-01-24 and 25,
+// less every start that overlaps one of each trainer's seed appointments.
+// Saturday's appointments take nothing away.
 func TestSeededAvailability(t *testing.T) {
 	srv, store := newServer(t, seedNow)
 	seedAppointments(t, store)
@@ -110,8 +111,13 @@ func TestSeededAvailability(t *testing.T) {
 		trainerID   int
 		wantMissing []string
 	}{
-		{1, []string{"2019-01-24T09:00:00-08:00", "2019-01-24T10:00:00-08:00", "2019-01-25T10:00:00-08:00", "2019-01-25T10:30:00-08:00"}},
-		{2, []string{"2019-01-24T09:00:00-08:00"}},
+		{1, []string{
+			"2019-01-24T08:45:00-08:00", "2019-01-24T09:00:00-08:00", "2019-01-24T09:15:00-08:00",
+			"2019-01-24T09:45:00-08:00", "2019-01-24T10:00:00-08:00", "2019-01-24T10:15:00-08:00",
+			"2019-01-25T09:45:00-08:00", "2019-01-25T10:00:00-08:00", "2019-01-25T10:15:00-08:00",
+			"2019-01-25T10:30:00-08:00", "2019-01-25T10:45:00-08:00",
+		}},
+		{2, []string{"2019-01-24T08:45:00-08:00", "2019-01-24T09:00:00-08:00", "2019-01-24T09:15:00-08:00"}},
 		{3, nil},
 	}
 
@@ -135,7 +141,7 @@ func TestSeededAvailability(t *testing.T) {
 			for _, s := range resp.Slots {
 				got = append(got, s.StartsAt)
 			}
-			if want := 36 - len(tt.wantMissing); len(got) != want {
+			if want := 70 - len(tt.wantMissing); len(got) != want {
 				t.Errorf("got %d slots, want %d", len(got), want)
 			}
 			var missing []string
@@ -151,14 +157,13 @@ func TestSeededAvailability(t *testing.T) {
 	}
 }
 
-// thursdayAndFridayStarts lists the 36 slot starts on 2019-01-24 and 25.
+// thursdayAndFridayStarts lists the 70 slot starts on 2019-01-24 and 25,
+// every 15 minutes from 08:00 to 16:30.
 func thursdayAndFridayStarts() []string {
 	var starts []string
 	for _, day := range []string{"2019-01-24", "2019-01-25"} {
-		for h := 8; h < 17; h++ {
-			starts = append(starts,
-				fmt.Sprintf("%sT%02d:00:00-08:00", day, h),
-				fmt.Sprintf("%sT%02d:30:00-08:00", day, h))
+		for m := 8 * 60; m <= 16*60+30; m += 15 {
+			starts = append(starts, fmt.Sprintf("%sT%02d:%02d:00-08:00", day, m/60, m%60))
 		}
 	}
 	return starts
@@ -242,12 +247,20 @@ func TestConcurrentBookingOverHTTP(t *testing.T) {
 		t.Run(fmt.Sprintf("%d-way", n), func(t *testing.T) {
 			srv, store := newServer(t, now)
 
-			// Monday's 18 slots and Tuesday's first 7, 2026-11-16 and 17.
+			// Monday's 18 slots at :00 and :30 and Tuesday's first 7,
+			// 2026-11-16 and 17. Skipping :15 and :45 keeps the slots
+			// apart, so one race never conflicts with an earlier one.
 			rules := mustRules(t)
-			slots := rules.Slots(
+			var slots []scheduling.Interval
+			for _, slot := range rules.Slots(
 				time.Date(2026, 11, 16, 0, 0, 0, 0, rules.Location),
 				time.Date(2026, 11, 18, 0, 0, 0, 0, rules.Location),
-				now, nil)[:slotCount]
+				now, nil) {
+				if slot.Start.Minute()%30 == 0 {
+					slots = append(slots, slot)
+				}
+			}
+			slots = slots[:slotCount]
 
 			for _, slot := range slots {
 				statuses := postAtOnce(t, srv, n, slot)

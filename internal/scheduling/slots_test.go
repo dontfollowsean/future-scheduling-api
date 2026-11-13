@@ -11,14 +11,23 @@ func TestSlotsOneBusinessDay(t *testing.T) {
 	rules := testRules(t)
 	slots := rules.Slots(mustTime("2026-11-16T00:00:00-08:00"), mustTime("2026-11-17T00:00:00-08:00"), testNow, nil)
 
-	if len(slots) != 18 {
-		t.Fatalf("got %d slots, want 18", len(slots))
+	if len(slots) != 35 {
+		t.Fatalf("got %d slots, want 35", len(slots))
 	}
 	if got := slots[0].Start.Format(time.RFC3339); got != "2026-11-16T08:00:00-08:00" {
 		t.Errorf("first slot starts %s, want 2026-11-16T08:00:00-08:00", got)
 	}
-	if got := slots[17].Start.Format(time.RFC3339); got != "2026-11-16T16:30:00-08:00" {
+	if got := slots[34].Start.Format(time.RFC3339); got != "2026-11-16T16:30:00-08:00" {
 		t.Errorf("last slot starts %s, want 2026-11-16T16:30:00-08:00", got)
+	}
+	// Starts step by the 15-minute grid, so :15 and :45 are listed too.
+	if got, want := wallClocks(slots), allStartsOn("2026-11-16"); !slices.Equal(got, want) {
+		t.Errorf("starts = %v, want %v", got, want)
+	}
+	for i, want := range []string{"2026-11-16 08:15", "2026-11-16 08:45"} {
+		if got := wallClock(slots[2*i+1].Start); got != want {
+			t.Errorf("slot %d starts %s, want %s", 2*i+1, got, want)
+		}
 	}
 	for _, s := range slots {
 		if s.End.Sub(s.Start) != 30*time.Minute {
@@ -42,25 +51,25 @@ func TestSlotsWindows(t *testing.T) {
 		wantLast  string
 	}{
 		{"Saturday and Sunday only", "2026-11-21T00:00:00-08:00", "2026-11-23T00:00:00-08:00", "", 0, "", ""},
-		{"Friday to Monday skips the weekend", "2026-11-20T00:00:00-08:00", "2026-11-24T00:00:00-08:00", "", 36,
+		{"Friday to Monday skips the weekend", "2026-11-20T00:00:00-08:00", "2026-11-24T00:00:00-08:00", "", 70,
 			"2026-11-20 08:00", "2026-11-23 16:30"},
-		{"partial edges keep only whole slots", "2026-11-16T09:10:00-08:00", "2026-11-16T16:45:00-08:00", "", 14,
-			"2026-11-16 09:30", "2026-11-16 16:00"},
+		{"partial edges keep only whole slots", "2026-11-16T09:10:00-08:00", "2026-11-16T16:45:00-08:00", "", 29,
+			"2026-11-16 09:15", "2026-11-16 16:15"},
 		{"exactly one slot", "2026-11-16T08:00:00-08:00", "2026-11-16T08:30:00-08:00", "", 1,
 			"2026-11-16 08:00", "2026-11-16 08:00"},
 		{"a minute short of one slot", "2026-11-16T08:00:00-08:00", "2026-11-16T08:29:00-08:00", "", 0, "", ""},
-		{"a slot straddling the start is dropped", "2026-11-16T08:15:00-08:00", "2026-11-16T09:00:00-08:00", "", 1,
-			"2026-11-16 08:30", "2026-11-16 08:30"},
-		{"window given in UTC", "2026-11-16T16:00:00Z", "2026-11-16T17:00:00Z", "", 2,
+		{"a slot straddling the start is dropped", "2026-11-16T08:10:00-08:00", "2026-11-16T09:00:00-08:00", "", 2,
+			"2026-11-16 08:15", "2026-11-16 08:30"},
+		{"window given in UTC", "2026-11-16T16:00:00Z", "2026-11-16T17:00:00Z", "", 3,
 			"2026-11-16 08:00", "2026-11-16 08:30"},
 		{"overnight between business days", "2026-11-16T17:00:00-08:00", "2026-11-17T08:00:00-08:00", "", 0, "", ""},
 		{"empty window", "2026-11-16T09:00:00-08:00", "2026-11-16T09:00:00-08:00", "", 0, "", ""},
 		{"backwards window", "2026-11-17T00:00:00-08:00", "2026-11-16T00:00:00-08:00", "", 0, "", ""},
 
 		// Past slots are hidden using the same rule as ValidateBooking.
-		{"now mid-morning hides earlier slots", "2026-11-16T00:00:00-08:00", "2026-11-17T00:00:00-08:00", "2026-11-16T10:10:00-08:00", 13,
-			"2026-11-16 10:30", "2026-11-16 16:30"},
-		{"a slot starting exactly now is kept", "2026-11-16T00:00:00-08:00", "2026-11-17T00:00:00-08:00", "2026-11-16T10:00:00-08:00", 14,
+		{"now mid-morning hides earlier slots", "2026-11-16T00:00:00-08:00", "2026-11-17T00:00:00-08:00", "2026-11-16T10:10:00-08:00", 26,
+			"2026-11-16 10:15", "2026-11-16 16:30"},
+		{"a slot starting exactly now is kept", "2026-11-16T00:00:00-08:00", "2026-11-17T00:00:00-08:00", "2026-11-16T10:00:00-08:00", 27,
 			"2026-11-16 10:00", "2026-11-16 16:30"},
 		{"window entirely in the past", "2026-11-16T00:00:00-08:00", "2026-11-17T00:00:00-08:00", "2026-11-18T00:00:00-08:00", 0, "", ""},
 	}
@@ -96,8 +105,8 @@ func TestSlotsSpringForwardWeek(t *testing.T) {
 	rules := testRules(t)
 	slots := rules.Slots(mustTime("2026-03-06T00:00:00-08:00"), mustTime("2026-03-14T00:00:00-07:00"), testNow, nil)
 
-	if len(slots) != 108 {
-		t.Fatalf("got %d slots, want 108 (6 business days × 18)", len(slots))
+	if len(slots) != 210 {
+		t.Fatalf("got %d slots, want 210 (6 business days × 35)", len(slots))
 	}
 	byDay := slotsByDay(slots)
 	checkUTC(t, "Friday's first slot", byDay["2026-03-06"][0].Start, "2026-03-06T16:00:00Z")
@@ -117,8 +126,8 @@ func TestSlotsFallBackWeek(t *testing.T) {
 	rules := testRules(t)
 	slots := rules.Slots(mustTime("2026-10-30T00:00:00-07:00"), mustTime("2026-11-03T00:00:00-08:00"), testNow, nil)
 
-	if len(slots) != 36 {
-		t.Fatalf("got %d slots, want 36 (Friday and Monday × 18)", len(slots))
+	if len(slots) != 70 {
+		t.Fatalf("got %d slots, want 70 (Friday and Monday × 35)", len(slots))
 	}
 	byDay := slotsByDay(slots)
 	checkUTC(t, "Friday's first slot", byDay["2026-10-30"][0].Start, "2026-10-30T15:00:00Z")
@@ -131,24 +140,32 @@ func TestSlotsSubtractsBookings(t *testing.T) {
 	tests := []struct {
 		name        string
 		booked      [][2]string
-		wantMissing []string // Pacific start times removed from the 18
+		wantMissing []string // Pacific start times removed from the 35
 	}{
 		{"no bookings", nil, nil},
-		{"back-to-back bookings remove only their own slots",
+		// A 30-minute booking hides the start 15 minutes before it, its
+		// own start, and the start 15 minutes into it.
+		{"a booking at :15 frees the start at :45",
+			[][2]string{{"2026-11-16T09:15:00-08:00", "2026-11-16T09:45:00-08:00"}},
+			[]string{"09:00", "09:15", "09:30"}},
+		{"a booking at :45 frees the start at :15",
+			[][2]string{{"2026-11-16T14:45:00-08:00", "2026-11-16T15:15:00-08:00"}},
+			[]string{"14:30", "14:45", "15:00"}},
+		{"back-to-back bookings remove only the starts they overlap",
 			[][2]string{{"2026-11-16T10:00:00-08:00", "2026-11-16T10:30:00-08:00"}, {"2026-11-16T10:30:00-08:00", "2026-11-16T11:00:00-08:00"}},
-			[]string{"10:00", "10:30"}},
-		{"a 60-minute booking removes two slots",
+			[]string{"09:45", "10:00", "10:15", "10:30", "10:45"}},
+		{"a 60-minute booking removes five starts",
 			[][2]string{{"2026-11-16T13:00:00-08:00", "2026-11-16T14:00:00-08:00"}},
-			[]string{"13:00", "13:30"}},
-		{"an off-grid booking removes both slots it touches",
-			[][2]string{{"2026-11-16T12:15:00-08:00", "2026-11-16T12:45:00-08:00"}},
-			[]string{"12:00", "12:30"}},
+			[]string{"12:45", "13:00", "13:15", "13:30", "13:45"}},
+		{"an off-grid booking removes every start it touches",
+			[][2]string{{"2026-11-16T12:10:00-08:00", "2026-11-16T12:40:00-08:00"}},
+			[]string{"11:45", "12:00", "12:15", "12:30"}},
 		{"a booking written in UTC",
 			[][2]string{{"2026-11-16T17:00:00Z", "2026-11-16T17:30:00Z"}},
-			[]string{"09:00"}},
+			[]string{"08:45", "09:00", "09:15"}},
 		{"bookings in any order",
 			[][2]string{{"2026-11-16T16:30:00-08:00", "2026-11-16T17:00:00-08:00"}, {"2026-11-16T08:00:00-08:00", "2026-11-16T08:30:00-08:00"}},
-			[]string{"08:00", "16:30"}},
+			[]string{"08:00", "08:15", "16:15", "16:30"}},
 		{"a booking ending at opening time removes nothing",
 			[][2]string{{"2026-11-16T07:30:00-08:00", "2026-11-16T08:00:00-08:00"}},
 			nil},
@@ -205,9 +222,9 @@ func TestSlotsSeedData(t *testing.T) {
 		trainer   int
 		wantCount int
 	}{
-		{1, 32}, // Thursday 09:00 and 10:00, Friday 10:00 and 10:30 are taken
-		{2, 35}, // Thursday 09:00 is taken
-		{3, 36}, // every appointment is on Saturday
+		{1, 59}, // Thursday 09:00 and 10:00 hide 3 starts each, Friday 10:00-11:00 hides 5
+		{2, 67}, // Thursday 09:00 hides 08:45, 09:00 and 09:15
+		{3, 70}, // every appointment is on Saturday
 	}
 
 	rules := testRules(t)
@@ -251,8 +268,8 @@ func TestEverySlotPassesValidateBooking(t *testing.T) {
 				if err := rules.ValidateBooking(s.Start, s.End, tt.now); err != nil {
 					t.Errorf("slot %s: ValidateBooking = %v", s.Start.Format(time.RFC3339), err)
 				}
-				if i > 0 && s.Start.Before(slots[i-1].End) {
-					t.Errorf("slot %s starts before the previous slot ends", s.Start.Format(time.RFC3339))
+				if i > 0 && !s.Start.After(slots[i-1].Start) {
+					t.Errorf("slot %s does not start after the previous slot", s.Start.Format(time.RFC3339))
 				}
 			}
 		})
@@ -297,11 +314,12 @@ func wallClocks(slots []Interval) []string {
 	return out
 }
 
-// allStartsOn lists the 18 slot starts of a business day, from 08:00 to 16:30.
+// allStartsOn lists the 35 slot starts of a business day, every 15 minutes
+// from 08:00 to 16:30.
 func allStartsOn(date string) []string {
 	var out []string
-	for h := 8; h < 17; h++ {
-		out = append(out, fmt.Sprintf("%s %02d:00", date, h), fmt.Sprintf("%s %02d:30", date, h))
+	for m := 8 * 60; m <= 16*60+30; m += 15 {
+		out = append(out, fmt.Sprintf("%s %02d:%02d", date, m/60, m%60))
 	}
 	return out
 }

@@ -48,11 +48,23 @@ func TestValidateBooking(t *testing.T) {
 		{"16:30 is the last start", "2026-11-16T16:30:00-08:00", "2026-11-16T17:00:00-08:00", "", ""},
 		{"17:00 ends after closing", "2026-11-16T17:00:00-08:00", "2026-11-16T17:30:00-08:00", CodeOutsideBusinessHours, "starts_at"},
 
-		// The :00/:30 grid, checked on the Pacific wall clock.
-		{"16:45 is off the grid", "2026-11-16T16:45:00-08:00", "2026-11-16T17:15:00-08:00", CodeOffGrid, "starts_at"},
-		{":15 is off the grid", "2026-11-16T09:15:00-08:00", "2026-11-16T09:45:00-08:00", CodeOffGrid, "starts_at"},
+		// The :00/:15/:30/:45 grid, checked on the Pacific wall clock.
+		{":15 is on the grid", "2026-11-16T09:15:00-08:00", "2026-11-16T09:45:00-08:00", "", ""},
+		{":45 is on the grid", "2026-11-16T09:45:00-08:00", "2026-11-16T10:15:00-08:00", "", ""},
+		{"16:15 is on the grid", "2026-11-16T16:15:00-08:00", "2026-11-16T16:45:00-08:00", "", ""},
+		{"16:45 ends after closing", "2026-11-16T16:45:00-08:00", "2026-11-16T17:15:00-08:00", CodeOutsideBusinessHours, "starts_at"},
+		{":05 is off the grid", "2026-11-16T09:05:00-08:00", "2026-11-16T09:35:00-08:00", CodeOffGrid, "starts_at"},
+		{":10 is off the grid", "2026-11-16T09:10:00-08:00", "2026-11-16T09:40:00-08:00", CodeOffGrid, "starts_at"},
+		{":20 is off the grid", "2026-11-16T09:20:00-08:00", "2026-11-16T09:50:00-08:00", CodeOffGrid, "starts_at"},
+		{":40 is off the grid", "2026-11-16T09:40:00-08:00", "2026-11-16T10:10:00-08:00", CodeOffGrid, "starts_at"},
+		{":50 is off the grid", "2026-11-16T09:50:00-08:00", "2026-11-16T10:20:00-08:00", CodeOffGrid, "starts_at"},
+		{":59 is off the grid", "2026-11-16T09:59:00-08:00", "2026-11-16T10:29:00-08:00", CodeOffGrid, "starts_at"},
 		{"whole seconds are off the grid", "2026-11-16T09:00:30-08:00", "2026-11-16T09:30:30-08:00", CodeOffGrid, "starts_at"},
+		{"whole seconds at :15 are off the grid", "2026-11-16T09:15:30-08:00", "2026-11-16T09:45:30-08:00", CodeOffGrid, "starts_at"},
+		{"whole seconds at :45 are off the grid", "2026-11-16T09:45:01-08:00", "2026-11-16T10:15:01-08:00", CodeOffGrid, "starts_at"},
 		{"fractional seconds are off the grid", "2026-11-16T09:00:00.5-08:00", "2026-11-16T09:30:00.5-08:00", CodeOffGrid, "starts_at"},
+		{"fractional seconds at :15 are off the grid", "2026-11-16T09:15:00.5-08:00", "2026-11-16T09:45:00.5-08:00", CodeOffGrid, "starts_at"},
+		{"fractional seconds at :45 are off the grid", "2026-11-16T09:45:00.001-08:00", "2026-11-16T10:15:00.001-08:00", CodeOffGrid, "starts_at"},
 
 		// Business days.
 		{"Saturday", "2026-11-21T09:00:00-08:00", "2026-11-21T09:30:00-08:00", CodeNotBusinessDay, "starts_at"},
@@ -67,7 +79,9 @@ func TestValidateBooking(t *testing.T) {
 
 		// Any offset is accepted; the rules apply to the Pacific wall clock.
 		{"Z is 09:00 PST", "2026-11-16T17:00:00Z", "2026-11-16T17:30:00Z", "", ""},
-		{"+05:45 on the hour there is 08:45 PST", "2026-11-16T22:30:00+05:45", "2026-11-16T23:00:00+05:45", CodeOffGrid, "starts_at"},
+		{"+05:45 at :30 there is 08:45 PST", "2026-11-16T22:30:00+05:45", "2026-11-16T23:00:00+05:45", "", ""},
+		{"+05:45 on the hour there is 08:15 PST", "2026-11-16T22:00:00+05:45", "2026-11-16T22:30:00+05:45", "", ""},
+		{"+05:45 at :40 there is 08:55 PST", "2026-11-16T22:40:00+05:45", "2026-11-16T23:10:00+05:45", CodeOffGrid, "starts_at"},
 		{"+05:45 at :45 there is 09:00 PST", "2026-11-16T22:45:00+05:45", "2026-11-16T23:15:00+05:45", "", ""},
 		{"-07:00 in winter is 08:00 PST", "2026-11-16T09:00:00-07:00", "2026-11-16T09:30:00-07:00", "", ""},
 		{"-07:00 in winter is 07:30 PST", "2026-11-16T08:30:00-07:00", "2026-11-16T09:00:00-07:00", CodeOutsideBusinessHours, "starts_at"},

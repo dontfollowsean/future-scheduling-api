@@ -39,10 +39,10 @@ func (r Rules) Slots(from, to, now time.Time, booked []Interval) []Interval {
 		if !slices.Contains(r.Workdays, day.Weekday()) {
 			continue
 		}
-		// Stepping by SlotLength within one day is safe: US DST changes
+		// Stepping by Grid within one day is safe: US DST changes
 		// happen at 02:00 on a Sunday, never inside business hours.
 		closing := r.at(day, r.Close)
-		for start := r.at(day, r.Open); !start.Add(r.SlotLength).After(closing); start = start.Add(r.SlotLength) {
+		for start := r.at(day, r.Open); !start.Add(r.SlotLength).After(closing); start = start.Add(r.Grid) {
 			slot := Interval{Start: start, End: start.Add(r.SlotLength)}
 			if slot.Start.Before(from) || slot.End.After(to) {
 				continue
@@ -57,7 +57,7 @@ func (r Rules) Slots(from, to, now time.Time, booked []Interval) []Interval {
 }
 
 // overlapsAny reports whether slot overlaps any of booked. A nested loop
-// is enough: a window holds at most 414 slots against a few bookings.
+// is enough: a window holds at most 805 slots against a few bookings.
 func overlapsAny(slot Interval, booked []Interval) bool {
 	for _, b := range booked {
 		if slot.Overlaps(b) {
