@@ -9,7 +9,7 @@ import (
 )
 
 // maxWindowDays is the longest availability window, in calendar days.
-// 31 days hold at most 23 business days, so at most 414 slots.
+// 31 days hold at most 23 business days, so at most 805 slots.
 const maxWindowDays = 31
 
 // ClockTime is a wall-clock time of day, such as 08:00, with no date or
@@ -30,14 +30,17 @@ type Rules struct {
 	Location *time.Location
 	Open     ClockTime // the earliest start
 	Close    ClockTime // the latest end
-	// SlotLength is both the length of an appointment and the grid that
-	// starts fall on: 30 minutes means starts at :00 or :30.
+	// SlotLength is the length of an appointment.
 	SlotLength time.Duration
-	Workdays   []time.Weekday
+	// Grid is the step that starts fall on: 15 minutes means starts at
+	// :00, :15, :30 or :45.
+	Grid     time.Duration
+	Workdays []time.Weekday
 }
 
 // DefaultRules returns the rules from the spec: 30-minute appointments
-// starting at :00 or :30, Monday to Friday, 08:00 to 17:00 Pacific time.
+// starting at :00, :15, :30 or :45, Monday to Friday, 08:00 to 17:00
+// Pacific time.
 func DefaultRules() (Rules, error) {
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
@@ -48,6 +51,7 @@ func DefaultRules() (Rules, error) {
 		Open:       ClockTime{Hour: 8, Minute: 0},
 		Close:      ClockTime{Hour: 17, Minute: 0},
 		SlotLength: 30 * time.Minute,
+		Grid:       15 * time.Minute,
 		Workdays:   []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday},
 	}, nil
 }
@@ -72,7 +76,7 @@ func (r Rules) Violations(start, end time.Time) []ValidationError {
 		violations = append(violations, ValidationError{
 			Code:    CodeOffGrid,
 			Field:   "starts_at",
-			Message: fmt.Sprintf("starts_at must be on a %d-minute boundary in %s, with zero seconds", int(r.SlotLength.Minutes()), r.Location),
+			Message: fmt.Sprintf("starts_at must be on a %d-minute boundary in %s, with zero seconds", int(r.Grid.Minutes()), r.Location),
 		})
 	}
 	if !slices.Contains(r.Workdays, local.Weekday()) {
@@ -130,13 +134,13 @@ func (r Rules) ValidateWindow(from, to time.Time) error {
 }
 
 // onGrid reports whether local, a wall-clock time in r.Location, is a
-// whole number of slot lengths past midnight with no seconds.
+// whole number of grid steps past midnight with no seconds.
 func (r Rules) onGrid(local time.Time) bool {
 	if local.Second() != 0 || local.Nanosecond() != 0 {
 		return false
 	}
 	minutes := local.Hour()*60 + local.Minute()
-	return minutes%int(r.SlotLength.Minutes()) == 0
+	return minutes%int(r.Grid.Minutes()) == 0
 }
 
 // at returns the instant when the wall clock in r.Location reads c on t's

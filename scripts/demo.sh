@@ -67,6 +67,6 @@ echo "# Book Saturday $saturday 10:00 (422)"
 show -X POST "$BASE_URL/appointments" -H 'Content-Type: application/json' \
 	-d "{\"trainer_id\": 1, \"user_id\": 42, \"starts_at\": \"$(pacific_time "$saturday" 10:00)\", \"ends_at\": \"$(pacific_time "$saturday" 10:30)\"}"
 
-echo "# Book Monday 10:15, off the half-hour grid (422)"
+echo "# Book Monday 10:10, off the 15-minute grid (422)"
 show -X POST "$BASE_URL/appointments" -H 'Content-Type: application/json' \
-	-d "{\"trainer_id\": 1, \"user_id\": 42, \"starts_at\": \"$(pacific_time "$monday" 10:15)\", \"ends_at\": \"$(pacific_time "$monday" 10:45)\"}"
+	-d "{\"trainer_id\": 1, \"user_id\": 42, \"starts_at\": \"$(pacific_time "$monday" 10:10)\", \"ends_at\": \"$(pacific_time "$monday" 10:40)\"}"

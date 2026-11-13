@@ -208,7 +208,9 @@ func TestBook(t *testing.T) {
 		// 4 to 8. The scheduling rules, from the Service.
 		{"60 minutes", bookingBody("2026-11-16T10:00:00-08:00", "2026-11-16T11:00:00-08:00"),
 			response{wantStatus: 422, wantCode: "invalid_duration", wantField: "ends_at"}},
-		{"off the grid", bookingBody("2026-11-16T10:15:00-08:00", "2026-11-16T10:45:00-08:00"),
+		{"off the 15-minute grid", bookingBody("2026-11-16T10:10:00-08:00", "2026-11-16T10:40:00-08:00"),
+			response{wantStatus: 422, wantBody: `{"error":{"code":"off_grid","message":"starts_at must be on a 15-minute boundary in America/Los_Angeles, with zero seconds","field":"starts_at"}}`}},
+		{"off the grid by seconds at :45", bookingBody("2026-11-16T10:45:30-08:00", "2026-11-16T11:15:30-08:00"),
 			response{wantStatus: 422, wantCode: "off_grid", wantField: "starts_at"}},
 		{"Saturday", bookingBody("2026-11-21T10:00:00-08:00", "2026-11-21T10:30:00-08:00"),
 			response{wantStatus: 422, wantCode: "not_business_day", wantField: "starts_at"}},
@@ -224,6 +226,12 @@ func TestBook(t *testing.T) {
 		// Success.
 		{"free slot", bookingBody("2026-11-16T10:00:00-08:00", "2026-11-16T10:30:00-08:00"),
 			response{wantStatus: 201, wantBody: `{"id":2,"trainer_id":1,"user_id":42,"starts_at":"2026-11-16T10:00:00-08:00","ends_at":"2026-11-16T10:30:00-08:00"}`}},
+		{"on the grid at :15", bookingBody("2026-11-16T10:15:00-08:00", "2026-11-16T10:45:00-08:00"),
+			response{wantStatus: 201, wantBody: `{"id":2,"trainer_id":1,"user_id":42,"starts_at":"2026-11-16T10:15:00-08:00","ends_at":"2026-11-16T10:45:00-08:00"}`}},
+		{"on the grid at :45", bookingBody("2026-11-16T10:45:00-08:00", "2026-11-16T11:15:00-08:00"),
+			response{wantStatus: 201, wantBody: `{"id":2,"trainer_id":1,"user_id":42,"starts_at":"2026-11-16T10:45:00-08:00","ends_at":"2026-11-16T11:15:00-08:00"}`}},
+		{"overlapping the booked slot at :15", bookingBody("2026-11-16T09:15:00-08:00", "2026-11-16T09:45:00-08:00"),
+			response{wantStatus: 409, wantCode: "slot_unavailable"}},
 		{"back to back with the booked slot", bookingBody("2026-11-16T09:30:00-08:00", "2026-11-16T10:00:00-08:00"),
 			response{wantStatus: 201, wantBody: `{"id":2,"trainer_id":1,"user_id":42,"starts_at":"2026-11-16T09:30:00-08:00","ends_at":"2026-11-16T10:00:00-08:00"}`}},
 		{"times in UTC are answered in Pacific time", bookingBody("2026-11-16T18:00:00Z", "2026-11-16T18:30:00Z"),
@@ -260,8 +268,15 @@ func TestAvailability(t *testing.T) {
 		{"the PLAN.md example", "/trainers/1/availability?starts_at=2026-11-16T08:00:00-08:00&ends_at=2026-11-16T10:00:00-08:00",
 			response{wantStatus: 200, wantBody: `{"trainer_id":1,"slots":[` +
 				`{"starts_at":"2026-11-16T08:00:00-08:00","ends_at":"2026-11-16T08:30:00-08:00"},` +
+				`{"starts_at":"2026-11-16T08:15:00-08:00","ends_at":"2026-11-16T08:45:00-08:00"},` +
 				`{"starts_at":"2026-11-16T08:30:00-08:00","ends_at":"2026-11-16T09:00:00-08:00"},` +
 				`{"starts_at":"2026-11-16T09:30:00-08:00","ends_at":"2026-11-16T10:00:00-08:00"}]}`}},
+		{":15 and :45 starts are listed", "/trainers/2/availability?starts_at=2026-11-16T09:00:00-08:00&ends_at=2026-11-16T10:15:00-08:00",
+			response{wantStatus: 200, wantBody: `{"trainer_id":2,"slots":[` +
+				`{"starts_at":"2026-11-16T09:00:00-08:00","ends_at":"2026-11-16T09:30:00-08:00"},` +
+				`{"starts_at":"2026-11-16T09:15:00-08:00","ends_at":"2026-11-16T09:45:00-08:00"},` +
+				`{"starts_at":"2026-11-16T09:30:00-08:00","ends_at":"2026-11-16T10:00:00-08:00"},` +
+				`{"starts_at":"2026-11-16T09:45:00-08:00","ends_at":"2026-11-16T10:15:00-08:00"}]}`}},
 		{"another trainer is free", "/trainers/2/availability?starts_at=2026-11-16T09:00:00-08:00&ends_at=2026-11-16T09:30:00-08:00",
 			response{wantStatus: 200, wantBody: `{"trainer_id":2,"slots":[{"starts_at":"2026-11-16T09:00:00-08:00","ends_at":"2026-11-16T09:30:00-08:00"}]}`}},
 		{"a positive offset sent as %2B", "/trainers/2/availability?starts_at=2026-11-16T16:00:00%2B00:00&ends_at=2026-11-16T16:30:00%2B00:00",
@@ -298,6 +313,21 @@ func TestAvailability(t *testing.T) {
 			checkResponse(t, rec, tt.response)
 		})
 	}
+}
+
+// TestBookingAtQuarterPastFreesQuarterTo books 09:15-09:45 and checks
+// that availability then hides every start it overlaps but still lists
+// 09:45, which starts as the booking ends.
+func TestBookingAtQuarterPastFreesQuarterTo(t *testing.T) {
+	store := &fakeStore{}
+	rec := serve(t, store, http.MethodPost, "/appointments", bookingBody("2026-11-16T09:15:00-08:00", "2026-11-16T09:45:00-08:00"))
+	checkResponse(t, rec, response{wantStatus: 201})
+
+	rec = serve(t, store, http.MethodGet, "/trainers/1/availability?starts_at=2026-11-16T08:45:00-08:00&ends_at=2026-11-16T10:30:00-08:00", "")
+	checkResponse(t, rec, response{wantStatus: 200, wantBody: `{"trainer_id":1,"slots":[` +
+		`{"starts_at":"2026-11-16T08:45:00-08:00","ends_at":"2026-11-16T09:15:00-08:00"},` +
+		`{"starts_at":"2026-11-16T09:45:00-08:00","ends_at":"2026-11-16T10:15:00-08:00"},` +
+		`{"starts_at":"2026-11-16T10:00:00-08:00","ends_at":"2026-11-16T10:30:00-08:00"}]}`})
 }
 
 func TestListAppointments(t *testing.T) {

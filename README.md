@@ -1,6 +1,6 @@
 # Trainer Video-Call Scheduling API
 
-An HTTP JSON API in Go that lets a client book a 30-minute video call with their trainer, backed by Postgres. A call starts on the hour or half hour, Monday to Friday, between 08:00 and 17:00 Pacific time, and a trainer's calls never overlap. There are three endpoints:
+An HTTP JSON API in Go that lets a client book a 30-minute video call with their trainer, backed by Postgres. A call starts on the hour or at :15, :30 or :45, Monday to Friday, between 08:00 and 17:00 Pacific time, and a trainer's calls never overlap. There are three endpoints:
 
 - `GET /trainers/{trainer_id}/availability?starts_at=&ends_at=` lists the free slots in a window.
 - `POST /appointments` books one of them.
@@ -25,7 +25,7 @@ docker compose up --build          # Postgres on :5433, the API on :8080
 
 > **The seed appointments are from January 2019.** Booking in the past is not allowed and past slots are never shown, so availability for those dates is always empty by design (see [Assumptions](#assumptions)). The appointments list still shows them, and the demo books next Monday instead.
 
-[`scripts/demo.sh`](scripts/demo.sh) computes next Monday in Pacific time, so it never needs a hard-coded date. Set `BASE_URL` to point it elsewhere. Its first booking succeeds once per database, so run `make down` before running it a second time. This is real output from a run after `docker compose down -v` and `docker compose up --build` on Wednesday 2026-11-11:
+[`scripts/demo.sh`](scripts/demo.sh) computes next Monday in Pacific time, so it never needs a hard-coded date. Set `BASE_URL` to point it elsewhere. Its first booking succeeds once per database, so run `make down` before running it a second time. This is real output from a run after `docker compose down -v` and `docker compose up --build` on Friday 2026-11-13:
 
 ```
 # Trainer 1's appointments (the January 2019 seed)
@@ -35,7 +35,7 @@ HTTP 200
 
 # Trainer 1's availability on Monday 2026-11-16, 08:00 to 11:00
 $ curl 'http://localhost:8080/trainers/1/availability?starts_at=2026-11-16T08:00:00-08:00&ends_at=2026-11-16T11:00:00-08:00'
-{"trainer_id":1,"slots":[{"starts_at":"2026-11-16T08:00:00-08:00","ends_at":"2026-11-16T08:30:00-08:00"},{"starts_at":"2026-11-16T08:30:00-08:00","ends_at":"2026-11-16T09:00:00-08:00"},{"starts_at":"2026-11-16T09:00:00-08:00","ends_at":"2026-11-16T09:30:00-08:00"},{"starts_at":"2026-11-16T09:30:00-08:00","ends_at":"2026-11-16T10:00:00-08:00"},{"starts_at":"2026-11-16T10:00:00-08:00","ends_at":"2026-11-16T10:30:00-08:00"},{"starts_at":"2026-11-16T10:30:00-08:00","ends_at":"2026-11-16T11:00:00-08:00"}]}
+{"trainer_id":1,"slots":[{"starts_at":"2026-11-16T08:00:00-08:00","ends_at":"2026-11-16T08:30:00-08:00"},{"starts_at":"2026-11-16T08:15:00-08:00","ends_at":"2026-11-16T08:45:00-08:00"},{"starts_at":"2026-11-16T08:30:00-08:00","ends_at":"2026-11-16T09:00:00-08:00"},{"starts_at":"2026-11-16T08:45:00-08:00","ends_at":"2026-11-16T09:15:00-08:00"},{"starts_at":"2026-11-16T09:00:00-08:00","ends_at":"2026-11-16T09:30:00-08:00"},{"starts_at":"2026-11-16T09:15:00-08:00","ends_at":"2026-11-16T09:45:00-08:00"},{"starts_at":"2026-11-16T09:30:00-08:00","ends_at":"2026-11-16T10:00:00-08:00"},{"starts_at":"2026-11-16T09:45:00-08:00","ends_at":"2026-11-16T10:15:00-08:00"},{"starts_at":"2026-11-16T10:00:00-08:00","ends_at":"2026-11-16T10:30:00-08:00"},{"starts_at":"2026-11-16T10:15:00-08:00","ends_at":"2026-11-16T10:45:00-08:00"},{"starts_at":"2026-11-16T10:30:00-08:00","ends_at":"2026-11-16T11:00:00-08:00"}]}
 HTTP 200
 
 # Book Monday 10:00 (201)
@@ -53,9 +53,9 @@ $ curl -X POST http://localhost:8080/appointments -H 'Content-Type: application/
 {"error":{"code":"not_business_day","message":"starts_at is on a Saturday in America/Los_Angeles, which is not a business day","field":"starts_at"}}
 HTTP 422
 
-# Book Monday 10:15, off the half-hour grid (422)
-$ curl -X POST http://localhost:8080/appointments -H 'Content-Type: application/json' -d '{"trainer_id": 1, "user_id": 42, "starts_at": "2026-11-16T10:15:00-08:00", "ends_at": "2026-11-16T10:45:00-08:00"}'
-{"error":{"code":"off_grid","message":"starts_at must be on a 30-minute boundary in America/Los_Angeles, with zero seconds","field":"starts_at"}}
+# Book Monday 10:10, off the 15-minute grid (422)
+$ curl -X POST http://localhost:8080/appointments -H 'Content-Type: application/json' -d '{"trainer_id": 1, "user_id": 42, "starts_at": "2026-11-16T10:10:00-08:00", "ends_at": "2026-11-16T10:40:00-08:00"}'
+{"error":{"code":"off_grid","message":"starts_at must be on a 15-minute boundary in America/Los_Angeles, with zero seconds","field":"starts_at"}}
 HTTP 422
 ```
 
@@ -72,14 +72,14 @@ Requests and responses are JSON. Timestamps are RFC 3339 with an explicit offset
 | `GET` | `/trainers/{trainer_id}/appointments` | none | `200 {"trainer_id", "appointments": [{"id", "trainer_id", "user_id", "starts_at", "ends_at"}]}` |
 | `GET` | `/healthz` | none | `200 {"status":"ok"}`, or `503 {"status":"unavailable"}` when the database is down |
 
-**Availability** returns the free 30-minute slots that fit entirely inside the half-open window `[starts_at, ends_at)`, in start order. Slots in the past are left out, so every listed slot is bookable when the response is sent. An empty result is `"slots": []`. The window may be at most 31 days.
+**Availability** returns the free 30-minute slots that fit entirely inside the half-open window `[starts_at, ends_at)`, in start order. Slots start every 15 minutes, so consecutive slots overlap: booking one hides it and its neighbours on either side. Slots in the past are left out, so every listed slot is bookable when the response is sent. An empty result is `"slots": []`. The window may be at most 31 days.
 
 **Appointments** are listed by `starts_at`, then `id`, including past ones and the seed's Saturday records. The list is not paginated.
 
 **Errors** all share one shape. `field` appears when one input is at fault, and `code` is stable while `message` may change:
 
 ```json
-{"error": {"code": "off_grid", "message": "starts_at must be on a 30-minute boundary in America/Los_Angeles, with zero seconds", "field": "starts_at"}}
+{"error": {"code": "off_grid", "message": "starts_at must be on a 15-minute boundary in America/Los_Angeles, with zero seconds", "field": "starts_at"}}
 ```
 
 | Status | `code` | When |
@@ -87,7 +87,7 @@ Requests and responses are JSON. Timestamps are RFC 3339 with an explicit offset
 | 400 | `invalid_json` | The body is not one JSON object of at most 1 MiB, has the wrong types, or has an unknown field, such as the seed file's `started_at` |
 | 400 | `invalid_field` | A missing or malformed id or timestamp, including a timestamp without an offset |
 | 422 | `invalid_duration` | `ends_at` is not `starts_at` + 30 minutes |
-| 422 | `off_grid` | `starts_at` is not on :00 or :30 Pacific, with zero seconds |
+| 422 | `off_grid` | `starts_at` is not on :00, :15, :30 or :45 Pacific, with zero seconds |
 | 422 | `not_business_day` | The Pacific date is a Saturday or Sunday |
 | 422 | `outside_business_hours` | The call starts before 08:00 or ends after 17:00 Pacific |
 | 422 | `in_past` | `starts_at` is before now |
@@ -105,7 +105,7 @@ Requests and responses are JSON. Timestamps are RFC 3339 with an explicit offset
 
 **A per-trainer advisory lock queues concurrent bookings.** The plan expected the constraint alone to be enough. In testing, two racing inserts could each wait on the other's uncommitted row, and Postgres then aborted one with `40P01 deadlock_detected` after a one-second stall, which would have been a `500` instead of a `409`. Each insert now runs `pg_advisory_xact_lock(trainer_id)` and then the `INSERT` in one short transaction. The constraint is still the guarantee; the lock only removes the deadlock. The seed takes the same locks, in trainer order.
 
-**Times are stored as UTC and judged in Pacific time.** Columns are `timestamptz`. Every rule converts the instant to `America/Los_Angeles` first and checks the weekday, the hours and the grid on the wall clock, so `2026-11-16T22:30:00+05:45` (08:45 PST) is correctly off the grid. Days are stepped with `time.Date` and `AddDate`, never by adding 24 hours, so slots stay at 08:00 local across DST changes. The tz database is embedded with `time/tzdata`. Responses use the Pacific offset, which matches the seed file and keeps the business hours visible.
+**Times are stored as UTC and judged in Pacific time.** Columns are `timestamptz`. Every rule converts the instant to `America/Los_Angeles` first and checks the weekday, the hours and the grid on the wall clock, so `2026-11-16T22:40:00+05:45` (08:55 PST) is correctly off the grid while `2026-11-16T22:30:00+05:45` (08:45 PST) is on it. Days are stepped with `time.Date` and `AddDate`, never by adding 24 hours, so slots stay at 08:00 local across DST changes. The tz database is embedded with `time/tzdata`. Responses use the Pacific offset, which matches the seed file and keeps the business hours visible.
 
 **The seed loads every record, even the ones that break the rules.** Five of the ten records are on a Saturday and one lasts 60 minutes. They are existing commitments from another system, so they are loaded as-is and each is logged as a warning; the rules govern new bookings. The load is one transaction with `ON CONFLICT (id) DO NOTHING`, so restarting inserts nothing, and the first booking afterwards gets id 11. A structurally broken file or an overlap fails the whole load. A changed record in a later version of the file is not updated, which is fine for a one-time import. The record-by-record audit is in [PLAN.md section 1](docs/PLAN.md#1-the-seed-data).
 
@@ -130,7 +130,7 @@ The spec left these open. Each has a default, and the ones that would change the
 | A7 | May a client hold overlapping calls with two trainers? | Yes; the spec only constrains trainers. Blocking it is one more constraint. |
 | A8 | `400` or `422`? | `400` for malformed or missing input, `422` for well-formed input that breaks a rule. |
 | A9 | Which time zone do responses use? | Pacific, matching the seed file. |
-| A10 | Largest availability window | 31 days (at most 414 slots). |
+| A10 | Largest availability window | 31 days (at most 805 slots). |
 | A11 | Holidays | Not excluded; the spec says Monday to Friday. |
 | A12 | Is `ends_at` redundant in `POST`? | It is required and must equal `starts_at` + 30 minutes. |
 
@@ -151,7 +151,7 @@ Both start Postgres and run every test with the race detector against a separate
 | `httpapi` | One handler case per row of the error table, with a fake store; the error shape; the JSON 404 and the 405. |
 | `postgres` | Overlap, back-to-back and different-offset bookings against real Postgres, the `CHECK` constraints, list ordering, and 2-way and 20-way concurrent inserts. |
 | `seed` | The real `appointments.json` loads 10 rows with 5 warnings, a rerun inserts nothing, the next id is 11, and a broken or overlapping file writes nothing. |
-| End to end | The real handler and store over the seeded database, with the clock pinned to 2019-01-21: trainer 1 has 32 free slots, trainer 2 has 35 and trainer 3 has 36. |
+| End to end | The real handler and store over the seeded database, with the clock pinned to 2019-01-21: trainer 1 has 59 free slots, trainer 2 has 67 and trainer 3 has 70. |
 
 **The concurrency test** (`TestConcurrentBookingOverHTTP`) sends 2, then 20, simultaneous `POST`s for the same slot through the real HTTP server and database, released together by a closed channel. It repeats over 25 slots so the requests genuinely interleave. Each slot must get exactly one `201`, a `409` for every other request, and exactly one row in the database. The store has the same 2-way and 20-way test without HTTP (`TestCreateAppointmentConcurrent`), which is the one that exposed the deadlock described under the advisory lock.
 
